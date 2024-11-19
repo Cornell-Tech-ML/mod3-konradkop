@@ -383,10 +383,10 @@ def tensor_reduce(
         reduce_value: float,
     ) -> None:
         BLOCK_DIM = 1024
-        # cache = cuda.shared.array(BLOCK_DIM, numba.float64)
-        # out_index = cuda.local.array(MAX_DIMS, numba.int32)
-        # out_pos = cuda.blockIdx.x
-        # pos = cuda.threadIdx.x
+        cache = cuda.shared.array(BLOCK_DIM, numba.float64)
+        out_index = cuda.local.array(MAX_DIMS, numba.int32)
+        out_pos = cuda.blockIdx.x
+        pos = cuda.threadIdx.x
 
         # Calculate the global index for the thread
         i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
