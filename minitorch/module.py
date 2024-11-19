@@ -1,3 +1,5 @@
+"""Provides some arithmetic functions"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, Sequence, Tuple
@@ -30,26 +32,30 @@ class Module:
         return list(m.values())
 
     def train(self) -> None:
-        """Set the mode of this module and all descendent modules to `train`."""
-        raise NotImplementedError("Need to include this file from past assignment.")
+        """Set the `training` flag of this and descendent to true."""
+        for m in self.modules():
+            m.train()
+        self.training = True
 
     def eval(self) -> None:
-        """Set the mode of this module and all descendent modules to `eval`."""
-        raise NotImplementedError("Need to include this file from past assignment.")
+        """Set the `training` flag of this and descendent to false."""
+        for m in self.modules():
+            m.eval()
+        self.training = False
 
     def named_parameters(self) -> Sequence[Tuple[str, Parameter]]:
-        """Collect all the parameters of this module and its descendents.
-
-        Returns
-        -------
-            The name and `Parameter` of each ancestor parameter.
-
-        """
-        raise NotImplementedError("Need to include this file from past assignment.")
+        """Collect all the parameters of this module and its descendents."""
+        parameters = {}
+        for k, v in self._parameters.items():
+            parameters[k] = v
+        for mod_name, m in self._modules.items():
+            for k, v in m.named_parameters():
+                parameters[f"{mod_name}.{k}"] = v
+        return list(parameters.items())
 
     def parameters(self) -> Sequence[Parameter]:
         """Enumerate over all the parameters of this module and its descendents."""
-        raise NotImplementedError("Need to include this file from past assignment.")
+        return [j for _, j in self.named_parameters()]
 
     def add_parameter(self, k: str, v: Any) -> Parameter:
         """Manually add a parameter. Useful helper for scalar parameters.
@@ -69,6 +75,7 @@ class Module:
         return val
 
     def __setattr__(self, key: str, val: Parameter) -> None:
+        """Sets the attribute"""
         if isinstance(val, Parameter):
             self.__dict__["_parameters"][key] = val
         elif isinstance(val, Module):
@@ -77,6 +84,7 @@ class Module:
             super().__setattr__(key, val)
 
     def __getattr__(self, key: str) -> Any:
+        """Gets the attribute"""
         if key in self.__dict__["_parameters"]:
             return self.__dict__["_parameters"][key]
 
@@ -85,9 +93,12 @@ class Module:
         return None
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        """Calls"""
         return self.forward(*args, **kwargs)
 
     def __repr__(self) -> str:
+        """Repr"""
+
         def _addindent(s_: str, numSpaces: int) -> str:
             s2 = s_.split("\n")
             if len(s2) == 1:
@@ -143,3 +154,6 @@ class Parameter:
 
     def __str__(self) -> str:
         return str(self.value)
+
+
+# konradChangedThisFile
