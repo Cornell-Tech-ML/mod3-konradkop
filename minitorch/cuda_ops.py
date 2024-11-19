@@ -170,19 +170,35 @@ def tensor_map(
         in_shape: Shape,
         in_strides: Strides,
     ) -> None:
-        # out_index = cuda.local.array(MAX_DIMS, numba.int32)
-        # in_index = cuda.local.array(MAX_DIMS, numba.int32)
-        # i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-        idx = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-        if idx >= out_size:
+        # Calculate the unique global index of the current thread
+        # idx is the 1D index calculated from the block and thread indices
+        global_index = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+
+        # If the global index exceeds the output size, exit the function
+        if global_index >= out_size:
             return
-        out_index = cuda.local.array(MAX_DIMS, numba.int32)
-        in_index = cuda.local.array(MAX_DIMS, numba.int32)
-        to_index(idx, out_shape, out_index)
-        broadcast_index(out_index, out_shape, in_shape, in_index)
-        out_pos = index_to_position(out_index, out_strides)
-        in_pos = index_to_position(in_index, in_strides)
-        out[out_pos] = fn(in_storage[in_pos])
+
+        # Initialize arrays to store the index positions for output and input tensors
+        # These are local arrays to hold the multi-dimensional indices
+        output_index = cuda.local.array(MAX_DIMS, numba.int32)
+        input_index = cuda.local.array(MAX_DIMS, numba.int32)
+
+        # Convert the 1D global index to a multi-dimensional index for the output tensor
+        to_index(global_index, out_shape, output_index)
+
+        # Broadcast the output multi-dimensional index to the input shape
+        # This adjusts the output index to match the corresponding input index
+        broadcast_index(output_index, out_shape, in_shape, input_index)
+
+        # Calculate the flat (1D) position in the output storage from the multi-dimensional output index
+        output_position = index_to_position(output_index, out_strides)
+
+        # Calculate the flat (1D) position in the input storage from the multi-dimensional input index
+        input_position = index_to_position(input_index, in_strides)
+
+        # Apply the function `fn` to the input value and store the result in the output
+        out[output_position] = fn(in_storage[input_position])
+
         # TODO: Implement for Task 3.3.
         # raise NotImplementedError("Need to implement for Task 3.3")
 
@@ -221,13 +237,43 @@ def tensor_zip(
         b_shape: Shape,
         b_strides: Strides,
     ) -> None:
-        out_index = cuda.local.array(MAX_DIMS, numba.int32)
+        # out_index = cuda.local.array(MAX_DIMS, numba.int32)
+        # a_index = cuda.local.array(MAX_DIMS, numba.int32)
+        # b_index = cuda.local.array(MAX_DIMS, numba.int32)
+        # i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+
+        # Calculate the unique global index of the current thread
+        global_index = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+
+        # If the global index exceeds the output size, exit the function
+        if global_index >= out_size:
+            return
+
+        # Initialize arrays to store the index positions for output and input tensors
+        output_index = cuda.local.array(MAX_DIMS, numba.int32)
         a_index = cuda.local.array(MAX_DIMS, numba.int32)
         b_index = cuda.local.array(MAX_DIMS, numba.int32)
-        i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 
-        # TODO: Implement for Task 3.3.
-        raise NotImplementedError("Need to implement for Task 3.3")
+        # Convert the 1D global index to a multi-dimensional index for the output tensor
+        to_index(global_index, out_shape, output_index)
+
+        # Broadcast the output multi-dimensional index to both input shapes
+        # This adjusts the output index to match the corresponding input indices
+        broadcast_index(output_index, out_shape, a_shape, a_index)
+        broadcast_index(output_index, out_shape, b_shape, b_index)
+
+        # Calculate the flat (1D) position in the output storage from the multi-dimensional output index
+        output_position = index_to_position(output_index, out_strides)
+
+        # Calculate the flat (1D) positions in the input storage from the multi-dimensional indices
+        a_position = index_to_position(a_index, a_strides)
+        b_position = index_to_position(b_index, b_strides)
+
+        # Apply the function `fn` to the elements from the two input tensors and store the result in the output
+        out[output_position] = fn(a_storage[a_position], b_storage[b_position])
+
+        # # TODO: Implement for Task 3.3.
+        # raise NotImplementedError("Need to implement for Task 3.3")
 
     return cuda.jit()(_zip)  # type: ignore
 
@@ -255,12 +301,44 @@ def _sum_practice(out: Storage, a: Storage, size: int) -> None:
     """
     BLOCK_DIM = 32
 
+    # cache = cuda.shared.array(BLOCK_DIM, numba.float64)
+    # i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+    # pos = cuda.threadIdx.x
+
+    # Shared memory for storing elements of the block
     cache = cuda.shared.array(BLOCK_DIM, numba.float64)
+
+    # Get the global index of the current thread
     i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+
+    # Thread's position in the block (used for reducing the sum)
     pos = cuda.threadIdx.x
 
+    # Initialize the shared memory cache
+    if i < size:
+        cache[pos] = a[i]  # Load value into shared memory
+    else:
+        cache[pos] = 0  # Ensure no out-of-bounds access
+
+    # Synchronize threads within the block to ensure all threads have loaded their values into shared memory
+    cuda.syncthreads()
+
+    # Perform reduction within the block to sum the values in shared memory
+    # Use a binary reduction pattern (e.g., sum pairs of values)
+    stride = 1
+    while stride < BLOCK_DIM:
+        if pos % (2 * stride) == 0 and pos + stride < BLOCK_DIM:
+            cache[pos] += cache[pos + stride]  # Sum the elements in shared memory
+        stride *= 2
+        cuda.syncthreads()  # Synchronize threads within the block after each reduction step
+
+    # After reduction, thread 0 writes the result for this block to the output array
+    if pos == 0 and i < size:
+        out[cuda.blockIdx.x] = cache[0]  # Write the block's sum to global memory
+
+
     # TODO: Implement for Task 3.3.
-    raise NotImplementedError("Need to implement for Task 3.3")
+    # raise NotImplementedError("Need to implement for Task 3.3")
 
 
 jit_sum_practice = cuda.jit()(_sum_practice)
@@ -305,13 +383,38 @@ def tensor_reduce(
         reduce_value: float,
     ) -> None:
         BLOCK_DIM = 1024
-        cache = cuda.shared.array(BLOCK_DIM, numba.float64)
-        out_index = cuda.local.array(MAX_DIMS, numba.int32)
-        out_pos = cuda.blockIdx.x
-        pos = cuda.threadIdx.x
+        # cache = cuda.shared.array(BLOCK_DIM, numba.float64)
+        # out_index = cuda.local.array(MAX_DIMS, numba.int32)
+        # out_pos = cuda.blockIdx.x
+        # pos = cuda.threadIdx.x
 
-        # TODO: Implement for Task 3.3.
-        raise NotImplementedError("Need to implement for Task 3.3")
+        # Calculate the global index for the thread
+        i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+
+        # Initialize shared memory to hold the reduction results within each block
+        if i < a_shape[0]:  # Check to avoid out-of-bounds access
+            cache[pos] = a_storage[i]  # Load data into shared memory
+        else:
+            cache[pos] = reduce_value  # Initialize with reduce_value (e.g., 0 for sum)
+
+        # Synchronize all threads within the block before reduction starts
+        cuda.syncthreads()
+
+        # Perform reduction within the block using the provided reduction function
+        stride = 1
+        while stride < BLOCK_DIM:
+            if pos % (2 * stride) == 0 and pos + stride < BLOCK_DIM:
+                cache[pos] = fn(cache[pos], cache[pos + stride])  # Reduce values
+            stride *= 2
+            cuda.syncthreads()  # Synchronize after each reduction step
+
+        # After the reduction, only thread 0 writes the result to the global output array
+        if pos == 0 and out_pos < out_size:
+            out[out_pos] = cache[0]  # Store the reduced result in global memory
+
+
+        # # TODO: Implement for Task 3.3.
+        # raise NotImplementedError("Need to implement for Task 3.3")
 
     return jit(_reduce)  # type: ignore
 
