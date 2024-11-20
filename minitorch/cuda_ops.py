@@ -392,7 +392,7 @@ def tensor_reduce(
         cuda.syncthreads()
         if local_idx == 0:
             out[out_position] = shared_block[local_idx]
-            
+
     return jit(_reduce)  # type: ignore
 
 
@@ -503,24 +503,58 @@ def _tensor_matrix_multiply(
     batch = cuda.blockIdx.z
 
     BLOCK_DIM = 32
-    a_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
-    b_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
+    # a_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
+    # b_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
 
-    # The final position c[i, j]
-    i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-    j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
+    # # The final position c[i, j]
+    # i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+    # j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
 
-    # The local position in the block.
-    pi = cuda.threadIdx.x
-    pj = cuda.threadIdx.y
+    # # The local position in the block.
+    # pi = cuda.threadIdx.x
+    # pj = cuda.threadIdx.y
 
-    # Code Plan:
-    # 1) Move across shared dimension by block dim.
-    #    a) Copy into shared memory for a matrix.
-    #    b) Copy into shared memory for b matrix
-    #    c) Compute the dot produce for position c[i, j]
-    # TODO: Implement for Task 3.4.
-    raise NotImplementedError("Need to implement for Task 3.4")
-
+    # # Code Plan:
+    # # 1) Move across shared dimension by block dim.
+    # #    a) Copy into shared memory for a matrix.
+    # #    b) Copy into shared memory for b matrix
+    # #    c) Compute the dot produce for position c[i, j]
+    # # TODO: Implement for Task 3.4.
+    # raise NotImplementedError("Need to implement for Task 3.4")
+    shared_a = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
+    shared_b = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
+    y = cuda.threadIdx.y
+    x = cuda.threadIdx.x
+    block_x = cuda.blockIdx.x * BLOCK_DIM
+    block_y = cuda.blockIdx.y * BLOCK_DIM
+    z = cuda.blockIdx.z
+    temp = 0
+    for block_index in range((a_shape[-1] + (BLOCK_DIM - 1)) // BLOCK_DIM):
+        block_mid = block_index * BLOCK_DIM
+        if (block_mid + x) < a_shape[-1] and (block_y + y) < a_shape[-2]:
+            shared_a[y, x] = a_storage[
+                z * a_batch_stride
+                + (block_mid + x) * a_strides[-1]
+                + (block_y + y) * a_strides[-2]
+            ]
+        else:
+            shared_a[y, x] = 0
+        if (block_x + x) < b_shape[-1] and (block_mid + y) < b_shape[-2]:
+            shared_b[y, x] = b_storage[
+                z * b_batch_stride
+                + (block_x + x) * b_strides[-1]
+                + (block_mid + y) * b_strides[-2]
+            ]
+        else:
+            shared_b[y, x] = 0
+        cuda.syncthreads()
+        for val in range(BLOCK_DIM):
+            temp += shared_a[y, val] * shared_b[val, x]
+    if (block_y + y) < out_shape[-2] and (block_x + x) < out_shape[-1]:
+        out[
+            z * out_strides[0]
+            + (block_y + y) * out_strides[-2]
+            + (block_x + x) * out_strides[-1]
+        ] = temp
 
 tensor_matrix_multiply = jit(_tensor_matrix_multiply)
