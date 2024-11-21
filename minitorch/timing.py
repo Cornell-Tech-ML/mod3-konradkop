@@ -1,3 +1,7 @@
+# Include the matplotlib inline directive at the beginning of the cell in Jupyter notebook
+# This will display plots inline
+%matplotlib inline
+
 import minitorch
 from minitorch import TensorBackend
 import time
@@ -68,4 +72,3 @@ if __name__ == "__main__":
     plt.legend()
     plt.grid(True)
     plt.show()
-
