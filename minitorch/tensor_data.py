@@ -32,32 +32,27 @@ UserShape: TypeAlias = Sequence[int]
 UserStrides: TypeAlias = Sequence[int]
 
 
-# def index_to_position(index: Index, strides: Strides) -> int:
-#     """Converts a multidimensional tensor `index` into a single-dimensional position in
-#     storage based on strides.
-
-#     Args:
-#     ----
-#         index (Index): A tuple representing the indices of the tensor.
-#         strides (Strides): A tuple of strides for each dimension of the tensor.
-
-#     Returns:
-#     -------
-#         int: The single-dimensional position in storage.
-
-#     """
-#     # ASSIGN2.1
-#     position = 0
-#     for ind, stride in zip(index, strides):
-#         position += ind * stride
-#     return position
-#     # END ASSIGN2.1
 def index_to_position(index: Index, strides: Strides) -> int:
+    """Converts a multidimensional tensor `index` into a single-dimensional position in
+    storage based on strides.
+
+    Args:
+    ----
+        index (Index): A tuple representing the indices of the tensor.
+        strides (Strides): A tuple of strides for each dimension of the tensor.
+
+    Returns:
+    -------
+        int: The single-dimensional position in storage.
+
+    """
+    # ASSIGN2.1
     position = 0
-    # Assume both index and strides are of the same length
-    for i in range(len(index)):
-        position += index[i] * strides[i]
+    for ind, stride in zip(index, strides):
+        position += ind * stride
     return position
+    # END ASSIGN2.1
+
 
 def to_index(ordinal: int, shape: Shape, out_index: OutIndex) -> None:
     """Convert an `ordinal` to an index in the `shape`.
