@@ -766,29 +766,31 @@ def _tensor_matrix_multiply(
     # Initialize the accumulator for the dot product
     c_value = 0.0
 
-     # Load the current tile from matrix A into shared memory
-    if i < a_shape[-2] and k * BLOCK_DIM + local_y < a_shape[-1]:
-        a_index = (batch * a_strides[0] + i * a_strides[-2] + (k * BLOCK_DIM + local_y) * a_strides[-1])
-        a_shared[local_x, local_y] = a_storage[a_index]
-    else:
-        a_shared[local_x, local_y] = 0.0  # Zero padding when out of bounds
+    # Loop over tiles in the shared dimension
+    for k in range((a_shape[-1] + BLOCK_DIM - 1) // BLOCK_DIM):
+        # Load the current tile from matrix A into shared memory
+        if i < a_shape[-2] and k * BLOCK_DIM + local_y < a_shape[-1]:
+            a_index = (batch * a_strides[0] + i * a_strides[-2] + (k * BLOCK_DIM + local_y) * a_strides[-1])
+            a_shared[local_x, local_y] = a_storage[a_index]
+        else:
+            a_shared[local_x, local_y] = 0.0  # Zero padding when out of bounds
 
-    # Load the current tile from matrix B into shared memory
-    if k * BLOCK_DIM + local_x < b_shape[-2] and j < b_shape[-1]:
-        b_index = (batch * b_strides[0] + (k * BLOCK_DIM + local_x) * b_strides[-2] + j * b_strides[-1])
-        b_shared[local_x, local_y] = b_storage[b_index]
-    else:
-        b_shared[local_x, local_y] = 0.0  # Zero padding when out of bounds
+        # Load the current tile from matrix B into shared memory
+        if k * BLOCK_DIM + local_x < b_shape[-2] and j < b_shape[-1]:
+            b_index = (batch * b_strides[0] + (k * BLOCK_DIM + local_x) * b_strides[-2] + j * b_strides[-1])
+            b_shared[local_x, local_y] = b_storage[b_index]
+        else:
+            b_shared[local_x, local_y] = 0.0  # Zero padding when out of bounds
 
-    # Synchronize threads
-    cuda.syncthreads()
+        # Synchronize threads
+        cuda.syncthreads()
 
-    # Perform the dot product for the current tile
-    for n in range(BLOCK_DIM):
-        c_value += a_shared[local_x, n] * b_shared[n, local_y]
+        # Perform the dot product for the current tile
+        for n in range(BLOCK_DIM):
+            c_value += a_shared[local_x, n] * b_shared[n, local_y]
 
-    # Synchronize threads after computation
-    cuda.syncthreads()
+        # Synchronize threads after computation
+        cuda.syncthreads()
 
     # Ensure the result is written to the correct index
     if i < out_shape[-2] and j < out_shape[-1]:
