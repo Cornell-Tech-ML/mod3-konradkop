@@ -415,177 +415,195 @@ def sum_practice(a: Tensor) -> TensorData:
     return out
 
 
+# def tensor_reduce(
+#     fn: Callable[[float, float], float],
+# ) -> Callable[[Storage, Shape, Strides, Storage, Shape, Strides, int], None]:
+#     """CUDA higher-order tensor reduce function.
+
+#     Args:
+#     ----
+#         fn: reduction function maps two floats to float.
+
+#     Returns:
+#     -------
+#         Tensor reduce function.
+
+#     """
+
+#     def _reduce(
+#         out: Storage,
+#         out_shape: Shape,
+#         out_strides: Strides,
+#         out_size: int,
+#         a_storage: Storage,
+#         a_shape: Shape,
+#         a_strides: Strides,
+#         reduce_dim: int,
+#         reduce_value: float,
+#     ) -> None:
+#         BLOCK_DIM = 1024
+#         # cache = cuda.shared.array(BLOCK_DIM, numba.float64)
+#         # out_index = cuda.local.array(MAX_DIMS, numba.int32)
+#         # out_pos = cuda.blockIdx.x
+#         # pos = cuda.threadIdx.x
+#         reduce_size = a_shape[reduce_dim]
+#         local_idx = cuda.threadIdx.x
+#         block_idx = cuda.blockIdx.x
+#         shared_block = cuda.shared.array(BLOCK_DIM, numba.float64)
+#         offset = 1
+#         out_index = cuda.local.array(MAX_DIMS, numba.int32)
+#         to_index(block_idx, out_shape, out_index)
+#         out_position = index_to_position(out_index, out_strides)
+#         if local_idx < reduce_size:
+#             out_index[reduce_dim] = local_idx
+#             shared_block[local_idx] = a_storage[index_to_position(out_index, a_strides)]
+#         else:
+#             shared_block[local_idx] = reduce_value
+#         while offset < BLOCK_DIM:
+#             cuda.syncthreads()
+#             if local_idx % (offset * 2) == 0:
+#                 shared_block[local_idx] = fn(
+#                     shared_block[local_idx], shared_block[local_idx + offset]
+#                 )
+#             offset *= 2
+#         cuda.syncthreads()
+#         if local_idx == 0:
+#             out[out_position] = shared_block[local_idx]
+
+#     return jit(_reduce)  # type: ignore
 def tensor_reduce(
     fn: Callable[[float, float], float],
 ) -> Callable[[Storage, Shape, Strides, Storage, Shape, Strides, int], None]:
-    """CUDA higher-order tensor reduce function.
+    """Generates a CUDA kernel for performing a reduction operation on a tensor.
+
+    This function is a higher-order function that takes a binary reduction function
+    (such as addition or maximum) and returns a CUDA kernel that performs a reduction
+    along a specified dimension of a tensor. This allows for operations like summing 
+    over a dimension, finding the maximum, etc., to be easily implemented in parallel
+    using CUDA.
 
     Args:
     ----
-        fn: reduction function maps two floats to float.
+        fn (Callable[[float, float], float]): A binary function that takes two floats
+            and returns a float. This function defines the reduction operation to be 
+            performed, e.g., summing two floats or finding the maximum of two floats.
 
     Returns:
     -------
-        Tensor reduce function.
-
+        Callable: A CUDA kernel function that performs the reduction. The returned
+        function takes several parameters, including the input and output storage,
+        tensor shapes, strides, the dimension to reduce, and the initial reduction value.
     """
 
-    # def _reduce(
-    #     out: Storage,
-    #     out_shape: Shape,
-    #     out_strides: Strides,
-    #     out_size: int,
-    #     a_storage: Storage,
-    #     a_shape: Shape,
-    #     a_strides: Strides,
-    #     reduce_dim: int,
-    #     reduce_value: float,
-    # ) -> None:
-    #     BLOCK_DIM = 1024
-    #     # cache = cuda.shared.array(BLOCK_DIM, numba.float64)
-    #     # out_index = cuda.local.array(MAX_DIMS, numba.int32)
-    #     # out_pos = cuda.blockIdx.x
-    #     # pos = cuda.threadIdx.x
-    #     reduce_size = a_shape[reduce_dim]
-    #     local_idx = cuda.threadIdx.x
-    #     block_idx = cuda.blockIdx.x
-    #     shared_block = cuda.shared.array(BLOCK_DIM, numba.float64)
-    #     offset = 1
-    #     out_index = cuda.local.array(MAX_DIMS, numba.int32)
-    #     to_index(block_idx, out_shape, out_index)
-    #     out_position = index_to_position(out_index, out_strides)
-    #     if local_idx < reduce_size:
-    #         out_index[reduce_dim] = local_idx
-    #         shared_block[local_idx] = a_storage[index_to_position(out_index, a_strides)]
-    #     else:
-    #         shared_block[local_idx] = reduce_value
-    #     while offset < BLOCK_DIM:
-    #         cuda.syncthreads()
-    #         if local_idx % (offset * 2) == 0:
-    #             shared_block[local_idx] = fn(
-    #                 shared_block[local_idx], shared_block[local_idx + offset]
-    #             )
-    #         offset *= 2
-    #     cuda.syncthreads()
-    #     if local_idx == 0:
-    #         out[out_position] = shared_block[local_idx]
+    def _reduce(
+        out: Storage,
+        out_shape: Shape,
+        out_strides: Strides,
+        out_size: int,
+        a_storage: Storage,
+        a_shape: Shape,
+        a_strides: Strides,
+        reduce_dim: int,
+        reduce_value: float,
+    ) -> None:
+        """
+        The CUDA kernel function for performing the tensor reduction along a specified dimension.
 
-    # return jit(_reduce)  # type: ignore
-def _reduce(
-    out: Storage,
-    out_shape: Shape,
-    out_strides: Strides,
-    out_size: int,
-    a_storage: Storage,
-    a_shape: Shape,
-    a_strides: Strides,
-    reduce_dim: int,
-    reduce_value: float,
-) -> None:
-    """Performs a reduction operation along a specific dimension of the input tensor.
+        This function uses a tree-based reduction approach, leveraging shared memory for efficient 
+        parallel computation within a block. Each thread block reduces a segment of the input tensor
+        along the specified `reduce_dim`, and writes the result to the `out` tensor.
 
-    This function reduces the elements of the `a_storage` tensor along the `reduce_dim`
-    dimension using a specified reduction function. The result of the reduction is
-    stored in the `out` tensor.
+        Args:
+        ----
+            out (Storage): The storage object where the reduced result is stored.
+            out_shape (Shape): The shape of the output tensor after reduction.
+            out_strides (Strides): The strides of the output tensor.
+            out_size (int): The total number of elements in the output tensor.
+            a_storage (Storage): The storage object for the input tensor.
+            a_shape (Shape): The shape of the input tensor.
+            a_strides (Strides): The strides of the input tensor.
+            reduce_dim (int): The dimension along which the reduction is performed.
+            reduce_value (float): The initial value for the reduction (e.g., 0 for sum).
+        """
 
-    Args:
-    ----
-        out (Storage): The storage object where the output of the reduction is stored.
-        out_shape (Shape): The shape of the output tensor.
-        out_strides (Strides): The strides of the output tensor.
-        out_size (int): The total number of elements in the output tensor.
-        a_storage (Storage): The storage object for the input tensor to be reduced.
-        a_shape (Shape): The shape of the input tensor.
-        a_strides (Strides): The strides of the input tensor.
-        reduce_dim (int): The dimension along which the reduction is performed.
-        reduce_value (float): The initial value used for reduction (e.g., 0 for sum).
+        # Define the size of each thread block (number of threads in a block).
+        # Each block will handle a segment of the reduction task.
+        BLOCK_DIM = 1024
 
-    Note:
-    -----
-    The reduction operation is done using shared memory to enhance parallel computation.
-    Each block in CUDA reduces its corresponding segment of the input tensor and writes
-    the result to the output tensor.
+        # Compute the size of the dimension being reduced, indicating how many elements 
+        # are to be reduced in each block.
+        reduce_size = a_shape[reduce_dim]
 
-    """
+        # Calculate the thread's local index within the block and the block's index within the grid.
+        # `local_idx` identifies the position of the thread within the block.
+        # `block_idx` specifies the position of the block within the grid of blocks.
+        local_idx = cuda.threadIdx.x
+        block_idx = cuda.blockIdx.x
 
-    # The size of each block of threads (number of threads in a block).
-    BLOCK_DIM = 1024
+        # Shared memory allocation for the current block. Shared memory is used for fast communication 
+        # between threads in the same block and for storing intermediate results during the reduction.
+        shared_block = cuda.shared.array(BLOCK_DIM, numba.float64)
 
-    # Compute the number of elements in the dimension being reduced.
-    # This determines how many elements will be summed/reduced in each block.
-    reduce_size = a_shape[reduce_dim]
+        # Allocate a local array to store the multi-dimensional output index temporarily.
+        # This array helps track the current indices within the output tensor.
+        out_index = cuda.local.array(MAX_DIMS, numba.int32)
 
-    # Calculate the local thread index (within a block) and the block index.
-    # `local_idx` refers to the index of the current thread within a block.
-    # `block_idx` is the index of the block within the grid of blocks.
-    local_idx = cuda.threadIdx.x
-    block_idx = cuda.blockIdx.x
+        # Convert the current block index into a multi-dimensional index based on the output shape.
+        # This conversion helps in navigating the tensor's multi-dimensional space.
+        to_index(block_idx, out_shape, out_index)
 
-    # Shared memory allocation for the current block. This shared memory allows
-    # threads within the same block to communicate and collaborate on data processing.
-    shared_block = cuda.shared.array(BLOCK_DIM, numba.float64)
+        # Calculate the linear position in the output tensor's flattened storage using strides.
+        # The result indicates where the final reduced value should be stored in `out`.
+        out_position = index_to_position(out_index, out_strides)
 
-    # Allocate a local array to store the output index temporarily.
-    # This array is used to track the indices within the output tensor.
-    out_index = cuda.local.array(MAX_DIMS, numba.int32)
+        # Populate the shared memory with elements from the input tensor.
+        # Each thread loads its corresponding value from the input tensor.
+        if local_idx < reduce_size:
+            # Adjust the out_index to point to the specific slice being reduced.
+            out_index[reduce_dim] = local_idx
+            # Convert the updated multi-dimensional index to a linear position in the input storage.
+            input_position = index_to_position(out_index, a_strides)
+            # Load the value from the input tensor into the shared memory.
+            shared_block[local_idx] = a_storage[input_position]
+        else:
+            # If the thread's local index exceeds the size of the dimension being reduced,
+            # initialize that position in shared memory with the `reduce_value`.
+            shared_block[local_idx] = reduce_value
 
-    # Convert the current block index (`block_idx`) to a multi-dimensional index
-    # that corresponds to the `out_shape`. This is useful for navigating the
-    # higher-dimensional tensor space.
-    to_index(block_idx, out_shape, out_index)
-
-    # Compute the output position in the flattened output storage using the
-    # `out_strides`. This gives the linear index where the reduction result
-    # should be stored for the current block.
-    out_position = index_to_position(out_index, out_strides)
-
-    # Populate the shared memory with elements from the input tensor.
-    # Each thread is responsible for a specific element based on its local index.
-    # If the thread's local index exceeds the dimension size being reduced, it
-    # initializes that part of shared memory with the `reduce_value` (default value).
-    if local_idx < reduce_size:
-        # Adjust the out_index to point to the specific slice being reduced.
-        out_index[reduce_dim] = local_idx
-        # Compute the position in the input tensor's storage based on the updated index.
-        input_position = index_to_position(out_index, a_strides)
-        shared_block[local_idx] = a_storage[input_position]
-    else:
-        # If the local index exceeds the size of the reduce dimension, fill with reduce_value.
-        shared_block[local_idx] = reduce_value
-
-    # Synchronize all threads in the block to ensure shared memory is populated
-    # correctly before proceeding with the reduction.
-    cuda.syncthreads()
-
-    # Perform the reduction using a tree-based approach. This approach gradually
-    # combines pairs of elements in shared memory until only one value remains.
-    offset = 1
-    while offset < BLOCK_DIM:
-        # Synchronize all threads before performing each reduction step to ensure
-        # that all threads have access to the correct values in shared memory.
+        # Synchronize all threads in the block to ensure shared memory is correctly populated
+        # before performing the reduction operation.
         cuda.syncthreads()
 
-        # Only threads whose local index is a multiple of `2 * offset` participate
-        # in this step. Each such thread combines its current value with the value
-        # located `offset` positions away.
-        if local_idx % (offset * 2) == 0:
-            shared_block[local_idx] = fn(
-                shared_block[local_idx], shared_block[local_idx + offset]
-            )
+        # Perform the reduction using a hierarchical tree-based approach.
+        # The reduction happens in several steps, gradually reducing the number of active threads.
+        offset = 1
+        while offset < BLOCK_DIM:
+            # Synchronize threads to ensure all threads have up-to-date data in shared memory
+            # before proceeding to the next step.
+            cuda.syncthreads()
 
-        # Double the offset to move to the next level of reduction.
-        offset *= 2
+            # Only threads whose index is a multiple of `2 * offset` will participate in this step.
+            # These threads reduce their current value with the value located `offset` positions away.
+            if local_idx % (offset * 2) == 0:
+                shared_block[local_idx] = fn(
+                    shared_block[local_idx], shared_block[local_idx + offset]
+                )
 
-    # Synchronize once more to ensure all reductions are completed before writing
-    # the final result.
-    cuda.syncthreads()
+            # Double the offset for the next reduction step.
+            offset *= 2
 
-    # After the reduction is complete, the result is stored in `shared_block[0]`.
-    # The first thread in each block writes this value to the correct position
-    # in the output storage.
-    if local_idx == 0:
-        out[out_position] = shared_block[0]
+        # A final synchronization to ensure that the reduction process is complete for all threads.
+        cuda.syncthreads()
+
+        # The final reduced result for this block is now in `shared_block[0]`.
+        # The first thread in each block writes this result to the correct position in the output storage.
+        if local_idx == 0:
+            out[out_position] = shared_block[0]
+
+    # Return the compiled CUDA kernel for the reduction operation.
+    # `jit` is used to compile `_reduce` into a GPU kernel for execution.
     return jit(_reduce)  # type: ignore
+
 
 def _mm_practice(out: Storage, a: Storage, b: Storage, size: int) -> None:
     """This is a practice square MM kernel to prepare for matmul.
