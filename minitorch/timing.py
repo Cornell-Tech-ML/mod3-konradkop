@@ -1,11 +1,11 @@
 import minitorch
-from minitorch import  TensorBackend
+from minitorch import TensorBackend
 import time
 import numpy as np
+import matplotlib.pyplot as plt  # Import matplotlib for plotting
 
 FastTensorBackend = minitorch.TensorBackend(minitorch.FastOps)
 GPUBackend = minitorch.TensorBackend(minitorch.CudaOps)
-
 
 def run_matmul(backend: TensorBackend, size: int = 16) -> None:
     batch_size = 2
@@ -13,7 +13,6 @@ def run_matmul(backend: TensorBackend, size: int = 16) -> None:
     x = minitorch.rand((batch_size, size, size), backend=backend)
     y = minitorch.rand((batch_size, size, size), backend=backend)
     z = x @ y
-
 
 if __name__ == "__main__":
     # Warmup
@@ -47,10 +46,26 @@ if __name__ == "__main__":
         times[size]["gpu"] = np.mean(gpu_times)
         print(times[size])
 
-    print()
-    print("Timing summary")
+    # Print timing summary
+    print("\nTiming summary")
     for size, stimes in times.items():
         print(f"Size: {size}")
         for b, t in stimes.items():
             print(f"    {b}: {t:.5f}")
+
+    # Plotting the results using matplotlib
+    sizes = list(times.keys())
+    fast_times_avg = [times[size]["fast"] for size in sizes]
+    gpu_times_avg = [times[size]["gpu"] for size in sizes]
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(sizes, fast_times_avg, label='FastTensorBackend', marker='o', linestyle='-', color='b')
+    plt.plot(sizes, gpu_times_avg, label='GPUBackend', marker='s', linestyle='-', color='r')
+
+    plt.title("Matrix Multiplication Benchmarking")
+    plt.xlabel("Matrix Size")
+    plt.ylabel("Average Time (seconds)")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
