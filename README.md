@@ -79,4 +79,17 @@ Passing Tasks in Collab:
 ![split cpu](https://github.com/user-attachments/assets/00ae689e-0b50-4167-927c-7280318cf194)
 
 
+
+# Larger Model - Simple 200
+
+## GPU Simple 200
+
+![200 GPU simple 200](https://github.com/user-attachments/assets/6c7f604c-cc25-4119-8ebb-1d699a71be15)
+
+
+## CPU Simple 200
+
+![200 CPU simple 200](https://github.com/user-attachments/assets/00c774a6-e6bd-45bd-b2eb-57710c16b507)
+
+
         
