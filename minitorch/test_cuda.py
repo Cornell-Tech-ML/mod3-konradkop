@@ -1,5 +1,6 @@
 from numba import cuda
 
+
 def test_cuda():
     if cuda.is_available():
         print("CUDA is available!")
@@ -7,5 +8,6 @@ def test_cuda():
         print(f"Device name: {device.name}")
     else:
         print("CUDA is not available.")
+
 
 test_cuda()

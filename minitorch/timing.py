@@ -7,12 +7,14 @@ import matplotlib.pyplot as plt  # Import matplotlib for plotting
 FastTensorBackend = minitorch.TensorBackend(minitorch.FastOps)
 GPUBackend = minitorch.TensorBackend(minitorch.CudaOps)
 
+
 def run_matmul(backend: TensorBackend, size: int = 16) -> None:
     batch_size = 2
 
     x = minitorch.rand((batch_size, size, size), backend=backend)
     y = minitorch.rand((batch_size, size, size), backend=backend)
     z = x @ y
+
 
 if __name__ == "__main__":
     # Warmup
@@ -59,8 +61,17 @@ if __name__ == "__main__":
     gpu_times_avg = [times[size]["gpu"] for size in sizes]
 
     plt.figure(figsize=(10, 6))
-    plt.plot(sizes, fast_times_avg, label='FastTensorBackend', marker='o', linestyle='-', color='b')
-    plt.plot(sizes, gpu_times_avg, label='GPUBackend', marker='s', linestyle='-', color='r')
+    plt.plot(
+        sizes,
+        fast_times_avg,
+        label="FastTensorBackend",
+        marker="o",
+        linestyle="-",
+        color="b",
+    )
+    plt.plot(
+        sizes, gpu_times_avg, label="GPUBackend", marker="s", linestyle="-", color="r"
+    )
 
     plt.title("Matrix Multiplication Benchmarking")
     plt.xlabel("Matrix Size")
@@ -69,6 +80,8 @@ if __name__ == "__main__":
     plt.grid(True)
 
     # Save the plot as a PNG file in Colab
-    plt.savefig('/content/matrix_multiplication_benchmark.png')  # Save to Colab's working directory
+    plt.savefig(
+        "/content/matrix_multiplication_benchmark.png"
+    )  # Save to Colab's working directory
     print("Plot saved as matrix_multiplication_benchmark.png")
     plt.show()
