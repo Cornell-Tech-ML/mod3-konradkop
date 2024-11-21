@@ -32,7 +32,7 @@ The files that will be synced are:
         minitorch/tensor_data.py minitorch/tensor_functions.py minitorch/tensor_ops.py minitorch/operators.py minitorch/scalar.py minitorch/scalar_functions.py minitorch/module.py minitorch/autodiff.py minitorch/module.py project/run_manual.py project/run_scalar.py project/run_tensor.py minitorch/operators.py minitorch/module.py minitorch/autodiff.py minitorch/tensor.py minitorch/datasets.py minitorch/testing.py minitorch/optim.py
 
 
-        
+
 
 Passing Tasks in Collab:
 
@@ -92,4 +92,4 @@ Passing Tasks in Collab:
 ![200 CPU simple 200](https://github.com/user-attachments/assets/00c774a6-e6bd-45bd-b2eb-57710c16b507)
 
 
-        
+

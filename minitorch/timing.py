@@ -9,10 +9,38 @@ GPUBackend = minitorch.TensorBackend(minitorch.CudaOps)
 
 
 def run_matmul(backend: TensorBackend, size: int = 16) -> None:
-    batch_size = 2
+    """Perform matrix multiplication between two random tensors using the specified backend.
 
+    This function generates two random tensors 'x' and 'y' of shape (batch_size, size, size),
+    performs matrix multiplication (denoted by the `@` operator), and stores the result in 'z'.
+    The operation is executed on the specified backend (e.g., CPU or GPU).
+
+    Parameters
+    ----------
+    - backend (TensorBackend): The backend to be used for tensor operations (e.g., CPU or GPU).
+    - size (int, optional): The size of the square matrices to be multiplied. Default is 16.
+
+    Returns
+    -------
+    - None: The result of the matrix multiplication is stored in 'z', but this function does not
+            return anything.
+
+    Example:
+    - run_matmul(cpu_backend, size=32)  # Performs matrix multiplication on CPU with matrices of size 32x32.
+
+    Notes
+    -----
+    - The matrices are generated with random values using `minitorch.rand`.
+    - The matrix multiplication is done using the `@` operator, which is supported by `minitorch` for tensor operations.
+
+    """
+    batch_size = 2  # Define the batch size for the operation
+
+    # Create two random tensors x and y with shapes (batch_size, size, size)
     x = minitorch.rand((batch_size, size, size), backend=backend)
     y = minitorch.rand((batch_size, size, size), backend=backend)
+
+    # Perform matrix multiplication (batch-wise)
     z = x @ y
 
 

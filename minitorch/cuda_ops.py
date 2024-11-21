@@ -225,40 +225,74 @@ def tensor_zip(
 
     """
 
-    def _zip(
-        out: Storage,
-        out_shape: Shape,
-        out_strides: Strides,
-        out_size: int,
-        a_storage: Storage,
-        a_shape: Shape,
-        a_strides: Strides,
-        b_storage: Storage,
-        b_shape: Shape,
-        b_strides: Strides,
-    ) -> None:
-        # out_index = cuda.local.array(MAX_DIMS, numba.int32)
-        # a_index = cuda.local.array(MAX_DIMS, numba.int32)
-        # b_index = cuda.local.array(MAX_DIMS, numba.int32)
-        # i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+def _zip(
+    out: Storage,            # Output storage where the result of the operation will be stored
+    out_shape: Shape,        # Shape of the output tensor
+    out_strides: Strides,    # Strides of the output tensor, used for memory access
+    out_size: int,           # Total size of the output tensor
+    a_storage: Storage,      # Storage for input tensor 'a'
+    a_shape: Shape,          # Shape of input tensor 'a'
+    a_strides: Strides,      # Strides of input tensor 'a'
+    b_storage: Storage,      # Storage for input tensor 'b'
+    b_shape: Shape,          # Shape of input tensor 'b'
+    b_strides: Strides,      # Strides of input tensor 'b'
+) -> None:
+    """
+    Perform an element-wise operation (specified by `fn`) on tensors 'a' and 'b',
+    and store the result in the output tensor 'out'. The function handles broadcasting
+    of shapes to align the tensors appropriately before applying the operation.
 
+    Parameters:
+    - out (Storage): The output storage to store the results of the element-wise operation.
+    - out_shape (Shape): The shape of the output tensor.
+    - out_strides (Strides): The memory strides for the output tensor.
+    - out_size (int): The total number of elements in the output tensor.
+    - a_storage (Storage): The storage of input tensor 'a'.
+    - a_shape (Shape): The shape of input tensor 'a'.
+    - a_strides (Strides): The memory strides for input tensor 'a'.
+    - b_storage (Storage): The storage of input tensor 'b'.
+    - b_shape (Shape): The shape of input tensor 'b'.
+    - b_strides (Strides): The memory strides for input tensor 'b'.
+
+    Returns:
+    - None: The results are directly stored in the 'out' storage, modifying it in place.
+
+    Notes:
+    - The function handles broadcasting of input tensors 'a' and 'b' to match the output shape.
+    - The operation applied on the elements of 'a' and 'b' is defined by the function 'fn'.
+    - CUDA kernel is used for efficient parallel processing across blocks and threads.
+
+    Example:
+    - _zip(out_tensor, out_shape, out_strides, out_size, a_storage, a_shape, a_strides, b_storage, b_shape, b_strides)
+    """
+
+        # Calculate the index for the current thread in the flattened output tensor
         idx = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+        # Exit early if the current thread index exceeds the output size
         if idx >= out_size:
             return
 
+        # Allocate local memory for the indices of output and input tensors 'a' and 'b'
         out_index = cuda.local.array(MAX_DIMS, numba.int32)
         a_index = cuda.local.array(MAX_DIMS, numba.int32)
         b_index = cuda.local.array(MAX_DIMS, numba.int32)
 
+        # Convert the linear index (idx) into multi-dimensional index for the output tensor
         to_index(idx, out_shape, out_index)
 
+        # Apply broadcasting to convert output indices to indices in tensors 'a' and 'b'
         broadcast_index(out_index, out_shape, a_shape, a_index)
         broadcast_index(out_index, out_shape, b_shape, b_index)
 
+        # Convert multi-dimensional indices to linear positions in the storage of tensors 'a', 'b', and 'out'
         a_pos = index_to_position(a_index, a_strides)
         b_pos = index_to_position(b_index, b_strides)
         out_pos = index_to_position(out_index, out_strides)
+
+        # Perform the element-wise operation (defined by `fn`) on corresponding elements from 'a' and 'b'
+        # and store the result in the output tensor
         out[out_pos] = fn(a_storage[a_pos], b_storage[b_pos])
+
 
         # # TODO: Implement for Task 3.3.
         # raise NotImplementedError("Need to implement for Task 3.3")
@@ -266,52 +300,8 @@ def tensor_zip(
     return cuda.jit()(_zip)  # type: ignore
 
 
-# def _sum_practice(out: Storage, a: Storage, size: int) -> None:
-#     """This is a practice sum kernel to prepare for reduce.
-
-#     Given an array of length $n$ and out of size $n // \text{blockDIM}$
-#     it should sum up each blockDim values into an out cell.
-
-#     $[a_1, a_2, ..., a_{100}]$
-
-#     |
-
-#     $[a_1 +...+ a_{31}, a_{32} + ... + a_{64}, ... ,]$
-
-#     Note: Each block must do the sum using shared memory!
-
-#     Args:
-#     ----
-#         out (Storage): storage for `out` tensor.
-#         a (Storage): storage for `a` tensor.
-#         size (int):  length of a.
-
-#     """
-#     BLOCK_DIM = 32
-
-#     # cache = cuda.shared.array(BLOCK_DIM, numba.float64)
-#     # i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-#     # pos = cuda.threadIdx.x
-#     local_idx = cuda.threadIdx.x
-#     block_idx = cuda.blockIdx.x
-#     shared_block = cuda.shared.array(BLOCK_DIM, numba.float64)
-#     offset = 1
-#     if block_idx * THREADS_PER_BLOCK + local_idx < size:
-#         shared_block[local_idx] = a[block_idx * THREADS_PER_BLOCK + local_idx]
-#     else:
-#         shared_block[local_idx] = 0
-#     while offset < BLOCK_DIM:
-#         cuda.syncthreads()
-#         if local_idx % (offset * 2) == 0:
-#             shared_block[local_idx] += shared_block[local_idx + offset]
-#         offset *= 2
-#     out[block_idx] = shared_block[0]
-
-
-# TODO: Implement for Task 3.3.
-# raise NotImplementedError("Need to implement for Task 3.3")
 def _sum_practice(out: Storage, a: Storage, size: int) -> None:
-    """This is a practice sum kernel to prepare for a reduction operation.
+    """A practice sum kernel to prepare for a reduction operation.
 
     Given an input array `a` of length `size`, the goal is to sum up each block
     of `BLOCK_DIM` elements into a single cell in the `out` array. The length
@@ -393,15 +383,45 @@ jit_sum_practice = cuda.jit()(_sum_practice)
 
 
 def sum_practice(a: Tensor) -> TensorData:
-    (size,) = a.shape
-    threadsperblock = THREADS_PER_BLOCK
-    blockspergrid = (size // THREADS_PER_BLOCK) + 1
-    out = TensorData([0.0 for i in range(2)], (2,))
-    out.to_cuda_()
-    jit_sum_practice[blockspergrid, threadsperblock](
-        out.tuple()[0], a._tensor._storage, size
+    """Function performs a parallel sum operation on the input tensor 'a' using CUDA.
+
+    The input tensor 'a' is summed in parallel across all elements, and the result is stored
+    in a two-element tensor, where the sum is stored in the first element.
+
+    Parameters
+    ----------
+    - a (Tensor): The input tensor whose elements are to be summed. The tensor is expected
+                  to have a shape that can be divided by `THREADS_PER_BLOCK`.
+
+    Returns
+    -------
+    - TensorData: A tensor of size 2, where the first element contains the sum of all elements
+                  from the input tensor 'a'. The second element is reserved for any additional
+                  data if needed, and it's initialized to 0.0.
+
+    Notes
+    -----
+    - The computation is performed using GPU via CUDA and `jit_sum_practice` kernel.
+    - The size of the input tensor 'a' is divided into blocks and threads for parallel processing.
+
+    """
+    (size,) = a.shape  # Extract the size of the tensor
+    threadsperblock = (
+        THREADS_PER_BLOCK  # Define the number of threads per block for CUDA
     )
-    return out
+    blockspergrid = (
+        size // THREADS_PER_BLOCK
+    ) + 1  # Calculate the number of blocks required
+    out = TensorData(
+        [0.0 for i in range(2)], (2,)
+    )  # Initialize the output tensor with two elements
+    out.to_cuda_()  # Move the output tensor to CUDA memory
+    jit_sum_practice[blockspergrid, threadsperblock](
+        out.tuple()[0],
+        a._tensor._storage,
+        size,  # Launch the CUDA kernel to perform the sum
+    )
+    return out  # Return the result tensor containing the sum
 
 
 def tensor_reduce(
@@ -539,7 +559,7 @@ def tensor_reduce(
 
 
 def _mm_practice(out: Storage, a: Storage, b: Storage, size: int) -> None:
-    """This is a practice square MM kernel to prepare for matmul.
+    """Practice square MM kernel to prepare for matmul.
 
     Given a storage `out` and two storage `a` and `b`. Where we know
     both are shape [size, size] with strides [size, 1].
