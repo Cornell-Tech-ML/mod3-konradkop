@@ -717,8 +717,6 @@ def mm_practice(a: Tensor, b: Tensor) -> TensorData:
 
 # tensor_matrix_multiply = jit(_tensor_matrix_multiply)
 
-import numba
-from numba import cuda
 
 def _tensor_matrix_multiply(
     out: Storage,
@@ -749,7 +747,6 @@ def _tensor_matrix_multiply(
         None : Fills in `out`
     """
     BLOCK_DIM = 32
-
     # Allocate shared memory for tiles of A and B
     a_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
     b_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
@@ -759,15 +756,14 @@ def _tensor_matrix_multiply(
     i = cuda.blockIdx.x * BLOCK_DIM + cuda.threadIdx.x  # Row index in C
     j = cuda.blockIdx.y * BLOCK_DIM + cuda.threadIdx.y  # Column index in C
 
-    # Indices within the block
     local_x = cuda.threadIdx.x
     local_y = cuda.threadIdx.y
 
-    # Initialize the accumulator for the dot product
-    c_value = 0.0
+    c_value = 0.0  # Initialize the accumulator for the dot product
 
     # Loop over tiles in the shared dimension
     for k in range((a_shape[-1] + BLOCK_DIM - 1) // BLOCK_DIM):
+        
         # Load the current tile from matrix A into shared memory
         if i < a_shape[-2] and k * BLOCK_DIM + local_y < a_shape[-1]:
             a_index = (batch * a_strides[0] + i * a_strides[-2] + (k * BLOCK_DIM + local_y) * a_strides[-1])
@@ -787,7 +783,8 @@ def _tensor_matrix_multiply(
 
         # Perform the dot product for the current tile
         for n in range(BLOCK_DIM):
-            c_value += a_shared[local_x, n] * b_shared[n, local_y]
+            if i < a_shape[-2] and j < b_shape[-1]:
+                c_value += a_shared[local_x, n] * b_shared[n, local_y]
 
         # Synchronize threads after computation
         cuda.syncthreads()
