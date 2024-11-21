@@ -1,7 +1,3 @@
-# Include the matplotlib inline directive at the beginning of the cell in Jupyter notebook
-# This will display plots inline
-%matplotlib inline
-
 import minitorch
 from minitorch import TensorBackend
 import time
@@ -71,4 +67,8 @@ if __name__ == "__main__":
     plt.ylabel("Average Time (seconds)")
     plt.legend()
     plt.grid(True)
+
+    # Save the plot as a PNG file in Colab
+    plt.savefig('/content/matrix_multiplication_benchmark.png')  # Save to Colab's working directory
+    print("Plot saved as matrix_multiplication_benchmark.png")
     plt.show()
