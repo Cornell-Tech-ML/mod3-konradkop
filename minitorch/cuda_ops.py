@@ -746,52 +746,87 @@ def _tensor_matrix_multiply(
     Returns:
         None : Fills in `out`
     """
+    # a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
+    # b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
+    # # Batch dimension - fixed
+    # batch = cuda.blockIdx.z
+
+    # BLOCK_DIM = 32
+    # a_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
+    # b_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
+
+    # # The final position c[i, j]
+    # i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+    # j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
+
+    # # The local position in the block.
+    # pi = cuda.threadIdx.x
+    # pj = cuda.threadIdx.y
+
+    # # Code Plan:
+    # # 1) Move across shared dimension by block dim.
+    # #    a) Copy into shared memory for a matrix.
+    # #    b) Copy into shared memory for b matrix
+    # #    c) Compute the dot produce for position c[i, j]
+    # # TODO: Implement for Task 3.4.
+    a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
+    b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
+    # Batch dimension - fixed
+    batch = cuda.blockIdx.z
+
     BLOCK_DIM = 32
-    # Allocate shared memory for tiles of A and B
     a_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
     b_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
 
-    # Calculate indices for threads
-    batch = cuda.blockIdx.z  # Batch dimension if present
-    i = cuda.blockIdx.x * BLOCK_DIM + cuda.threadIdx.x  # Row index in C
-    j = cuda.blockIdx.y * BLOCK_DIM + cuda.threadIdx.y  # Column index in C
+    # The final position c[i, j]
+    i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+    j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
 
-    local_x = cuda.threadIdx.x
-    local_y = cuda.threadIdx.y
+    # The local position in the block.
+    pi = cuda.threadIdx.x
+    pj = cuda.threadIdx.y
 
-    c_value = 0.0  # Initialize the accumulator for the dot product
-
-    # Loop over tiles in the shared dimension
-    for k in range((a_shape[-1] + BLOCK_DIM - 1) // BLOCK_DIM):
-        
-        # Load the current tile from matrix A into shared memory
-        if i < a_shape[-2] and k * BLOCK_DIM + local_y < a_shape[-1]:
-            a_index = (batch * a_strides[0] + i * a_strides[-2] + (k * BLOCK_DIM + local_y) * a_strides[-1])
-            a_shared[local_x, local_y] = a_storage[a_index]
-        else:
-            a_shared[local_x, local_y] = 0.0  # Zero padding when out of bounds
-
-        # Load the current tile from matrix B into shared memory
-        if k * BLOCK_DIM + local_x < b_shape[-2] and j < b_shape[-1]:
-            b_index = (batch * b_strides[0] + (k * BLOCK_DIM + local_x) * b_strides[-2] + j * b_strides[-1])
-            b_shared[local_x, local_y] = b_storage[b_index]
-        else:
-            b_shared[local_x, local_y] = 0.0  # Zero padding when out of bounds
-
-        # Synchronize threads
+    # Code Plan:
+    # 1) Move across shared dimension by block dim.
+    #    a) Copy into shared memory for a matrix.
+    #    b) Copy into shared memory for b matrix
+    #    c) Compute the dot produce for position c[i, j]
+    # TODO: Implement for Task 3.4.
+    # @https://github.com/minitorch/minitorch-module-3-zmvictor/blob/master/minitorch/cuda_ops.py
+    M, N, K = out_shape[1], out_shape[2], a_shape[-1]
+    acc = 0.0  # accumulator
+    # 2. To calculate out[i, j], we need a[i, ...] and b[..., j]
+    # Thus, each thread needs to copy one row of a and one column of b
+    # 对于每个block来说，最终的结果就是一个out matrix里面block大小的结果。不同的block计算不同位置的结果，铺满整个out matrix
+    for start in range(0, K, BLOCK_DIM):  # start is the starting index of the block
+        # build guards to make sure we don't copy values out of bounds
+        a_k = start + pj
+        # copy a[i, start + pj] to a_shared[pi, pj]
+        if i < M and a_k < K:
+            # thread在外部循环时，每次fetch大矩阵的一个值过来。想象在a矩阵中block按一行的顺序往右移动，
+            # 在b矩阵中block按一列的顺序往下移动，每次移动一个block大小，直到移动到矩阵的边界
+            a_shared[pi, pj] = a_storage[
+                batch * a_batch_stride + i * a_strides[1] + a_k * a_strides[2]
+            ]
+        b_k = start + pi
+        # copy b[start + pi, j] to b_shared[pi, pj]
+        if b_k < K and j < N:
+            b_shared[pi, pj] = b_storage[
+                batch * b_batch_stride + b_k * b_strides[1] + j * b_strides[2]
+            ]
+        # synchronize the threads
         cuda.syncthreads()
-
-        # Perform the dot product for the current tile
-        for n in range(BLOCK_DIM):
-            if i < a_shape[-2] and j < b_shape[-1]:
-                c_value += a_shared[local_x, n] * b_shared[n, local_y]
-
-        # Synchronize threads after computation
-        cuda.syncthreads()
-
-    # Ensure the result is written to the correct index
-    if i < out_shape[-2] and j < out_shape[-1]:
-        out_index = (batch * out_strides[0] + i * out_strides[-2] + j * out_strides[-1])
-        out[out_index] = c_value
+        # 3. After copying, calculate dot product of the two blocks and add to acc
+        # build a guard to make sure we don't use values out of bounds
+        for k in range(BLOCK_DIM):
+            if start + k < K:
+                acc += a_shared[pi, k] * b_shared[k, pj]
+        # 每个thread计算出一个block大小的矩阵的一行、一列乘积和后，每次外部循环就是拓展该行、该列在原矩阵的位置，
+        # 最终能够计算出大矩阵的一行、一列的乘积和
+    # 4. Copy acc to out[i, j]
+    # Note: the number of threads is not necessarily equal to the number of elements in out
+    # we need to use guard to make sure we don't copy values out of bounds
+    if i < M and j < N:
+        out[batch * out_strides[0] + i * out_strides[1] + j * out_strides[2]] = acc
 
 tensor_matrix_multiply = jit(_tensor_matrix_multiply)  # type: ignore
