@@ -278,49 +278,126 @@ def tensor_zip(
     return cuda.jit()(_zip)  # type: ignore
 
 
-def _sum_practice(out: Storage, a: Storage, size: int) -> None:
-    """This is a practice sum kernel to prepare for reduce.
+# def _sum_practice(out: Storage, a: Storage, size: int) -> None:
+#     """This is a practice sum kernel to prepare for reduce.
 
-    Given an array of length $n$ and out of size $n // \text{blockDIM}$
-    it should sum up each blockDim values into an out cell.
+#     Given an array of length $n$ and out of size $n // \text{blockDIM}$
+#     it should sum up each blockDim values into an out cell.
 
-    $[a_1, a_2, ..., a_{100}]$
+#     $[a_1, a_2, ..., a_{100}]$
 
-    |
+#     |
 
-    $[a_1 +...+ a_{31}, a_{32} + ... + a_{64}, ... ,]$
+#     $[a_1 +...+ a_{31}, a_{32} + ... + a_{64}, ... ,]$
 
-    Note: Each block must do the sum using shared memory!
+#     Note: Each block must do the sum using shared memory!
 
-    Args:
-    ----
-        out (Storage): storage for `out` tensor.
-        a (Storage): storage for `a` tensor.
-        size (int):  length of a.
+#     Args:
+#     ----
+#         out (Storage): storage for `out` tensor.
+#         a (Storage): storage for `a` tensor.
+#         size (int):  length of a.
 
-    """
-    BLOCK_DIM = 32
+#     """
+#     BLOCK_DIM = 32
 
-    # cache = cuda.shared.array(BLOCK_DIM, numba.float64)
-    # i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-    # pos = cuda.threadIdx.x
-    local_idx = cuda.threadIdx.x
-    block_idx = cuda.blockIdx.x
-    shared_block = cuda.shared.array(BLOCK_DIM, numba.float64)
-    offset = 1
-    if block_idx * THREADS_PER_BLOCK + local_idx < size:
-        shared_block[local_idx] = a[block_idx * THREADS_PER_BLOCK + local_idx]
-    else:
-        shared_block[local_idx] = 0
-    while offset < BLOCK_DIM:
-        cuda.syncthreads()
-        if local_idx % (offset * 2) == 0:
-            shared_block[local_idx] += shared_block[local_idx + offset]
-        offset *= 2
-    out[block_idx] = shared_block[0]
+#     # cache = cuda.shared.array(BLOCK_DIM, numba.float64)
+#     # i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+#     # pos = cuda.threadIdx.x
+#     local_idx = cuda.threadIdx.x
+#     block_idx = cuda.blockIdx.x
+#     shared_block = cuda.shared.array(BLOCK_DIM, numba.float64)
+#     offset = 1
+#     if block_idx * THREADS_PER_BLOCK + local_idx < size:
+#         shared_block[local_idx] = a[block_idx * THREADS_PER_BLOCK + local_idx]
+#     else:
+#         shared_block[local_idx] = 0
+#     while offset < BLOCK_DIM:
+#         cuda.syncthreads()
+#         if local_idx % (offset * 2) == 0:
+#             shared_block[local_idx] += shared_block[local_idx + offset]
+#         offset *= 2
+#     out[block_idx] = shared_block[0]
 
     # TODO: Implement for Task 3.3.
     # raise NotImplementedError("Need to implement for Task 3.3")
+def _sum_practice(out: Storage, a: Storage, size: int) -> None:
+    """This is a practice sum kernel to prepare for a reduction operation.
+
+    Given an input array `a` of length `size`, the goal is to sum up each block
+    of `BLOCK_DIM` elements into a single cell in the `out` array. The length 
+    of the `out` array should be `size // BLOCK_DIM`, since each block of `BLOCK_DIM`
+    values in `a` will correspond to a single output value in `out`.
+
+    The input array `a` is conceptually divided into chunks (or "blocks") of `BLOCK_DIM` elements:
+    
+        Input:  [a_1, a_2, ..., a_{size}]
+        Output: [sum(a_1 ... a_{BLOCK_DIM}), sum(a_{BLOCK_DIM+1} ... a_{2*BLOCK_DIM}), ...]
+
+    Note:
+    -----
+    Each thread block will be responsible for computing the sum of `BLOCK_DIM` elements using
+    shared memory. This ensures efficient use of memory and parallel computation within each block.
+
+    Args:
+    ----
+        out (Storage): Storage object where the reduced output is stored.
+        a (Storage): Storage object containing the input data to be summed.
+        size (int): The length of the input array `a`.
+    """
+
+    # Define the size of each block to be summed
+    BLOCK_DIM = 32
+
+    # Allocate shared memory for the current block. This shared memory is visible 
+    # to all threads in the same block and can be used for communication and temporary 
+    # storage of intermediate results within a block.
+    shared_block = cuda.shared.array(BLOCK_DIM, numba.float64)
+
+    # Compute the local thread index within the block and the global block index.
+    # `local_idx` is the index of the current thread within the block.
+    # `block_idx` is the index of the block within the grid of blocks.
+    local_idx = cuda.threadIdx.x
+    block_idx = cuda.blockIdx.x
+
+    # Calculate the offset position to access the correct element in the input array `a`.
+    # Each block handles a segment of the input array `a` based on the block index and thread index.
+    input_index = block_idx * BLOCK_DIM + local_idx
+
+    # Initialize the shared memory for the current block with elements from the input array.
+    # If the input_index is out of bounds (i.e., beyond the size of the input array), 
+    # fill that position in the shared memory with 0.
+    if input_index < size:
+        shared_block[local_idx] = a[input_index]
+    else:
+        shared_block[local_idx] = 0
+
+    # Synchronize all threads in the block to ensure that the shared memory has been
+    # completely populated before performing any further operations.
+    cuda.syncthreads()
+
+    # Use a reduction pattern to sum up the elements in the shared memory.
+    # The `offset` variable starts at 1 and doubles each iteration, controlling
+    # the distance between elements being summed.
+    offset = 1
+    while offset < BLOCK_DIM:
+        # Synchronize threads before performing each step to ensure all previous
+        # updates to shared memory are visible to every thread.
+        cuda.syncthreads()
+
+        # Only threads whose index is a multiple of `2 * offset` participate in the summing.
+        # They add the value at their position to the value `offset` positions away.
+        if local_idx % (offset * 2) == 0:
+            shared_block[local_idx] += shared_block[local_idx + offset]
+
+        # Double the offset to continue reducing the number of active threads.
+        offset *= 2
+
+    # After the reduction is complete, the sum for this block is stored in the first
+    # position of the shared memory (`shared_block[0]`). This value is then written
+    # to the output array at the position corresponding to the current block.
+    if local_idx == 0:
+        out[block_idx] = shared_block[0]
 
 
 jit_sum_practice = cuda.jit()(_sum_practice)
