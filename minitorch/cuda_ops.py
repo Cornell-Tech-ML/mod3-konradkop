@@ -225,77 +225,39 @@ def tensor_zip(
 
     """
 
-def _zip(
-    out: Storage,            # Output storage where the result of the operation will be stored
-    out_shape: Shape,        # Shape of the output tensor
-    out_strides: Strides,    # Strides of the output tensor, used for memory access
-    out_size: int,           # Total size of the output tensor
-    a_storage: Storage,      # Storage for input tensor 'a'
-    a_shape: Shape,          # Shape of input tensor 'a'
-    a_strides: Strides,      # Strides of input tensor 'a'
-    b_storage: Storage,      # Storage for input tensor 'b'
-    b_shape: Shape,          # Shape of input tensor 'b'
-    b_strides: Strides,      # Strides of input tensor 'b'
-) -> None:
-    """
-    Perform an element-wise operation (specified by `fn`) on tensors 'a' and 'b',
-    and store the result in the output tensor 'out'. The function handles broadcasting
-    of shapes to align the tensors appropriately before applying the operation.
+    def _zip(
+        out: Storage,
+        out_shape: Shape,
+        out_strides: Strides,
+        out_size: int,
+        a_storage: Storage,
+        a_shape: Shape,
+        a_strides: Strides,
+        b_storage: Storage,
+        b_shape: Shape,
+        b_strides: Strides,
+    ) -> None:
 
-    Parameters:
-    - out (Storage): The output storage to store the results of the element-wise operation.
-    - out_shape (Shape): The shape of the output tensor.
-    - out_strides (Strides): The memory strides for the output tensor.
-    - out_size (int): The total number of elements in the output tensor.
-    - a_storage (Storage): The storage of input tensor 'a'.
-    - a_shape (Shape): The shape of input tensor 'a'.
-    - a_strides (Strides): The memory strides for input tensor 'a'.
-    - b_storage (Storage): The storage of input tensor 'b'.
-    - b_shape (Shape): The shape of input tensor 'b'.
-    - b_strides (Strides): The memory strides for input tensor 'b'.
+        idx = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+        if idx >= out_size:
+            return
 
-    Returns:
-    - None: The results are directly stored in the 'out' storage, modifying it in place.
+        out_index = cuda.local.array(MAX_DIMS, numba.int32)
+        a_index = cuda.local.array(MAX_DIMS, numba.int32)
+        b_index = cuda.local.array(MAX_DIMS, numba.int32)
 
-    Notes:
-    - The function handles broadcasting of input tensors 'a' and 'b' to match the output shape.
-    - The operation applied on the elements of 'a' and 'b' is defined by the function 'fn'.
-    - CUDA kernel is used for efficient parallel processing across blocks and threads.
+        to_index(idx, out_shape, out_index)
 
-    Example:
-    - _zip(out_tensor, out_shape, out_strides, out_size, a_storage, a_shape, a_strides, b_storage, b_shape, b_strides)
-    """
+        broadcast_index(out_index, out_shape, a_shape, a_index)
+        broadcast_index(out_index, out_shape, b_shape, b_index)
 
-    # Calculate the index for the current thread in the flattened output tensor
-    idx = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-    # Exit early if the current thread index exceeds the output size
-    if idx >= out_size:
-        return
+        a_pos = index_to_position(a_index, a_strides)
+        b_pos = index_to_position(b_index, b_strides)
+        out_pos = index_to_position(out_index, out_strides)
+        out[out_pos] = fn(a_storage[a_pos], b_storage[b_pos])
 
-    # Allocate local memory for the indices of output and input tensors 'a' and 'b'
-    out_index = cuda.local.array(MAX_DIMS, numba.int32)
-    a_index = cuda.local.array(MAX_DIMS, numba.int32)
-    b_index = cuda.local.array(MAX_DIMS, numba.int32)
-
-    # Convert the linear index (idx) into multi-dimensional index for the output tensor
-    to_index(idx, out_shape, out_index)
-
-    # Apply broadcasting to convert output indices to indices in tensors 'a' and 'b'
-    broadcast_index(out_index, out_shape, a_shape, a_index)
-    broadcast_index(out_index, out_shape, b_shape, b_index)
-
-    # Convert multi-dimensional indices to linear positions in the storage of tensors 'a', 'b', and 'out'
-    a_pos = index_to_position(a_index, a_strides)
-    b_pos = index_to_position(b_index, b_strides)
-    out_pos = index_to_position(out_index, out_strides)
-
-    # Perform the element-wise operation (defined by `fn`) on corresponding elements from 'a' and 'b'
-    # and store the result in the output tensor
-    out[out_pos] = fn(a_storage[a_pos], b_storage[b_pos])
-
-
-    # # TODO: Implement for Task 3.3.
-    # raise NotImplementedError("Need to implement for Task 3.3")
+        # # TODO: Implement for Task 3.3.
+        # raise NotImplementedError("Need to implement for Task 3.3")
 
     return cuda.jit()(_zip)  # type: ignore
 
