@@ -242,35 +242,23 @@ def tensor_zip(
         # b_index = cuda.local.array(MAX_DIMS, numba.int32)
         # i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 
-        # Calculate the unique global index of the current thread
-        global_index = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-
-        # If the global index exceeds the output size, exit the function
-        if global_index >= out_size:
+        idx = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+        if idx >= out_size:
             return
 
-        # Initialize arrays to store the index positions for output and input tensors
-        output_index = cuda.local.array(MAX_DIMS, numba.int32)
+        out_index = cuda.local.array(MAX_DIMS, numba.int32)
         a_index = cuda.local.array(MAX_DIMS, numba.int32)
         b_index = cuda.local.array(MAX_DIMS, numba.int32)
 
-        # Convert the 1D global index to a multi-dimensional index for the output tensor
-        to_index(global_index, out_shape, output_index)
+        to_index(idx, out_shape, out_index)
 
-        # Broadcast the output multi-dimensional index to both input shapes
-        # This adjusts the output index to match the corresponding input indices
-        broadcast_index(output_index, out_shape, a_shape, a_index)
-        broadcast_index(output_index, out_shape, b_shape, b_index)
+        broadcast_index(out_index, out_shape, a_shape, a_index)
+        broadcast_index(out_index, out_shape, b_shape, b_index)
 
-        # Calculate the flat (1D) position in the output storage from the multi-dimensional output index
-        output_position = index_to_position(output_index, out_strides)
-
-        # Calculate the flat (1D) positions in the input storage from the multi-dimensional indices
-        a_position = index_to_position(a_index, a_strides)
-        b_position = index_to_position(b_index, b_strides)
-
-        # Apply the function `fn` to the elements from the two input tensors and store the result in the output
-        out[output_position] = fn(a_storage[a_position], b_storage[b_position])
+        a_pos = index_to_position(a_index, a_strides)
+        b_pos = index_to_position(b_index, b_strides)
+        out_pos = index_to_position(out_index, out_strides)
+        out[out_pos] = fn(a_storage[a_pos], b_storage[b_pos])
 
         # # TODO: Implement for Task 3.3.
         # raise NotImplementedError("Need to implement for Task 3.3")
