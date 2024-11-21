@@ -1,3 +1,11 @@
+"""Package provides a comprehensive framework for tensor operations, automatic differentiation, and
+CUDA-accelerated computations. It includes modules for fast operations, tensor data manipulation, scalar
+operations, and support for various datasets and optimization routines.
+
+The framework is designed for numerical computations, enabling efficient tensor manipulations, mathematical
+operations, and the development of machine learning models.
+"""
+
 from .testing import MathTest, MathTestVariable  # type: ignore # noqa: F401,F403
 from .fast_ops import *  # noqa: F401,F403
 from .cuda_ops import *  # noqa: F401,F403
